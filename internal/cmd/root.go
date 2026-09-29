@@ -137,17 +137,10 @@ func Execute() {
 }
 
 func normalizeLegacyAliases(args []string) []string {
-	if len(args) < 2 {
-		return args
-	}
-
-	switch args[1] {
-	case "destroy":
-		normalized := []string{args[0], "remove", "--delete-remote"}
-		return append(normalized, args[2:]...)
-	default:
-		return args
-	}
+	// The `destroy` alias (remove --delete-remote) was removed in this fork to
+	// prevent accidental remote-branch deletion. `remove --delete-remote` still
+	// works when passed explicitly.
+	return args
 }
 
 func isKnownCommand(name string) bool {

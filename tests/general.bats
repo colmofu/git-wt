@@ -36,6 +36,17 @@ teardown() {
 	! grep -R "destroy" man/*.1
 }
 
+@test "general: destroy is not an alias for remove --delete-remote" {
+	init_bare_repo myrepo
+	cd myrepo
+	create_worktree keep-me keep-me
+
+	run "$GIT_WT" destroy keep-me
+	[ "$status" -ne 0 ]
+	assert_worktree_exists "$TEST_DIR/myrepo/keep-me"
+	assert_branch_exists keep-me
+}
+
 @test "general: no arguments shows grouped help" {
 	run "$GIT_WT"
 	[ "$status" -eq 0 ]
