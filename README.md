@@ -33,7 +33,7 @@ Changes from upstream:
 - **No `destroy` alias.** Upstream maps `destroy` to `remove --delete-remote`. Here `destroy` is not a command, so a mistyped or agent-run `destroy` cannot delete a remote branch. `git wt remove --delete-remote` still works when you pass it yourself.
 - **Installed from source only.** No Homebrew tap, releases or Nix/mise packages; the release workflow is removed so the fork never publishes to upstream's tap.
 - **The agent skill never deletes remote branches.** `skills/git-wt/SKILL.md` drops the remote-deletion section and the piped-confirmation example, and tells agents to leave remote deletion to the user.
-- **Slash paths keep their full branch name.** `git wt add hotfix/x` checks out branch `hotfix/x` (tracking `origin/hotfix/x` if it exists) instead of `x`, `git wt add hotfix/x origin/hotfix/x` gives a local tracking branch instead of a detached HEAD, and `git wt remove hotfix/x` deletes the `hotfix/` folder once it is empty.
+- **Slash paths keep their full branch name.** `git wt add hotfix/x` checks out branch `hotfix/x` (tracking `origin/hotfix/x` if it exists) instead of `x`, `git wt add hotfix/x origin/hotfix/x` gives a local tracking branch instead of a detached HEAD, and `git wt remove hotfix/x` deletes the `hotfix/` folder once it is empty. Flat names work the same way: `git wt add feature` tracks `origin/feature` when it exists, where upstream would branch from HEAD.
 
 Everything else, including the docs below, follows upstream apart from the `add` examples.
 

@@ -29,9 +29,11 @@ upstream tracking is set automatically if the branch exists on the remote.
 Without -b/-B/--detach/--orphan, the branch is named after the full path from
 the repository root, so hotfix/x checks out hotfix/x, not x. An existing local
 branch is used as is; otherwise the branch is created to track the remote
-branch of that name when one exists, or from HEAD. Given a remote branch as <commit-ish>,
-a local branch of the same name is checked out (created to track it if needed)
-instead of a detached HEAD.
+branch of that name when one exists, or from HEAD. A path starting with a
+remote name, such as origin/team/x, checks out team/x tracking origin/team/x.
+Given a remote branch as <commit-ish>, a local branch of the same name is
+checked out (created to track it if needed) instead of a detached HEAD, unless
+that branch is checked out in another worktree.
 
 On success, prints the absolute created worktree path to stdout. Human-oriented
 progress, prompts, and hints are written to stderr.`,
@@ -252,10 +254,16 @@ type inferredAdd struct {
 	// requested is the remote ref asked for when an existing local branch is
 	// used instead, so a differing tip can be reported.
 	requested string
+	// detached checks out start with a detached HEAD, because its branch is
+	// checked out in another worktree.
+	detached bool
 }
 
 func (p inferredAdd) gitArgs(path string) []string {
-	if !p.create {
+	switch {
+	case p.detached:
+		return []string{"--detach", "--", path, p.start}
+	case !p.create:
 		return []string{"--", path, p.branch}
 	}
 	args := []string{"-b", p.branch, "--", path}
@@ -267,48 +275,94 @@ func (p inferredAdd) gitArgs(path string) []string {
 
 // planInferredAdd handles `add <path>` and `add <path> <remote>/<branch>`. It
 // reports false when git's own behaviour should apply unchanged.
-func planInferredAdd(root, remote string, args []string) (inferredAdd, bool) {
+func planInferredAdd(root, remote string, args []string) (inferredAdd, bool, error) {
 	switch len(args) {
 	case 1:
 		branch, ok := inferBranchFromPath(root, args[0])
 		if !ok {
-			return inferredAdd{}, false
+			return inferredAdd{}, false, nil
+		}
+		// A path like origin/team/new names a remote branch, not a local one.
+		if r, b, ok := splitRemotePrefix(remoteNames(root), branch); ok {
+			if !refExists(root, "refs/remotes/"+r+"/"+b) {
+				return inferredAdd{}, false, fmt.Errorf("%s is not a remote branch, and %s would be an ambiguous local branch name; did you mean `git wt add %s`?", branch, branch, b)
+			}
+			return planFromRemoteBranch(root, r+"/"+b, b), true, nil
 		}
 		if localBranchExists(root, branch) {
-			return inferredAdd{branch: branch}, true
+			return inferredAdd{branch: branch}, true, nil
 		}
 		if remote != "" && refExists(root, "refs/remotes/"+remote+"/"+branch) {
 			ref := remote + "/" + branch
-			return inferredAdd{branch: branch, create: true, start: ref, upstream: ref}, true
+			return inferredAdd{branch: branch, create: true, start: ref, upstream: ref}, true, nil
 		}
-		return inferredAdd{branch: branch, create: true}, true
+		return inferredAdd{branch: branch, create: true}, true, nil
 	case 2:
 		ref, branch, ok := remoteBranchRef(root, args[1])
 		if !ok {
-			return inferredAdd{}, false
+			return inferredAdd{}, false, nil
 		}
-		if localBranchExists(root, branch) {
-			if checkedOutBranches()[branch] {
-				return inferredAdd{}, false
-			}
-			return inferredAdd{branch: branch, requested: ref}, true
-		}
-		return inferredAdd{branch: branch, create: true, start: ref, upstream: ref}, true
+		return planFromRemoteBranch(root, ref, branch), true, nil
 	}
-	return inferredAdd{}, false
+	return inferredAdd{}, false, nil
+}
+
+// planFromRemoteBranch checks out branch for the remote ref <remote>/<branch>,
+// as the interactive picker does.
+func planFromRemoteBranch(root, ref, branch string) inferredAdd {
+	if !localBranchExists(root, branch) {
+		return inferredAdd{branch: branch, create: true, start: ref, upstream: ref}
+	}
+	if path := checkedOutAt(branch); path != "" {
+		ui.Warnf("Branch %s is checked out at %s; creating the worktree with a detached HEAD at %s", branch, path, ref)
+		return inferredAdd{start: ref, detached: true}
+	}
+	return inferredAdd{branch: branch, requested: ref}
+}
+
+func checkedOutAt(branch string) string {
+	entries, err := worktree.List()
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if e.Branch == branch && !e.Detached {
+			return e.Path
+		}
+	}
+	return ""
 }
 
 // inferBranchFromPath names the branch after the worktree path relative to the
 // bare root, so hotfix/x checks out hotfix/x rather than x.
 func inferBranchFromPath(root, path string) (string, bool) {
-	if strings.HasSuffix(path, "/") {
-		return "", false
+	full := addPath(root, path)
+	name, ok := pathFromRoot(root, full)
+	if !ok {
+		// root has symlinks resolved; the path may reach it through one.
+		name, ok = pathFromRoot(root, resolveExistingPrefix(full))
 	}
-	name, ok := pathFromRoot(root, addPath(root, path))
 	if !ok || !validBranchName(name) {
 		return "", false
 	}
 	return name, true
+}
+
+// resolveExistingPrefix resolves symlinks in the deepest existing ancestor of
+// path, which need not exist yet.
+func resolveExistingPrefix(path string) string {
+	for dir := path; ; dir = filepath.Dir(dir) {
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			rest, err := filepath.Rel(dir, path)
+			if err != nil {
+				return path
+			}
+			return filepath.Join(resolved, rest)
+		}
+		if filepath.Dir(dir) == dir {
+			return path
+		}
+	}
 }
 
 func validBranchName(name string) bool {
@@ -322,30 +376,47 @@ func validBranchName(name string) bool {
 // remoteBranchRef reports whether commitish names a remote-tracking branch,
 // returning it as <remote>/<branch> along with the branch name.
 func remoteBranchRef(root, commitish string) (ref, branch string, ok bool) {
-	full, err := git.QueryIn(root, "rev-parse", "--symbolic-full-name", commitish)
-	if err != nil || !strings.HasPrefix(full, "refs/remotes/") {
+	// rev-parse would read a leading dash as an option, and echoes
+	// --end-of-options back, so reject such input here instead.
+	if strings.HasPrefix(commitish, "-") {
 		return "", "", false
 	}
-	remotes, err := git.QueryIn(root, "remote")
+	full, err := git.QueryIn(root, "rev-parse", "--symbolic-full-name", commitish)
 	if err != nil {
 		return "", "", false
 	}
-	// Remote names may contain slashes, so prefer the longest match.
-	remote := ""
-	for r := range strings.SplitSeq(remotes, "\n") {
+	short, found := strings.CutPrefix(full, "refs/remotes/")
+	if !found {
+		return "", "", false
+	}
+	remote, branch, ok := splitRemotePrefix(remoteNames(root), short)
+	if !ok || !validBranchName(branch) {
+		return "", "", false
+	}
+	return remote + "/" + branch, branch, true
+}
+
+func remoteNames(root string) []string {
+	out, err := git.QueryIn(root, "remote")
+	if err != nil || out == "" {
+		return nil
+	}
+	return strings.Split(out, "\n")
+}
+
+// splitRemotePrefix splits name into a configured remote and the rest.
+// Remote names may contain slashes, so the longest match wins.
+func splitRemotePrefix(remotes []string, name string) (remote, rest string, ok bool) {
+	for _, r := range remotes {
 		r = strings.TrimSpace(r)
-		if r != "" && len(r) > len(remote) && strings.HasPrefix(full, "refs/remotes/"+r+"/") {
+		if r != "" && len(r) > len(remote) && strings.HasPrefix(name, r+"/") && len(name) > len(r)+1 {
 			remote = r
 		}
 	}
 	if remote == "" {
 		return "", "", false
 	}
-	branch = strings.TrimPrefix(full, "refs/remotes/"+remote+"/")
-	if !validBranchName(branch) {
-		return "", "", false
-	}
-	return remote + "/" + branch, branch, true
+	return remote, strings.TrimPrefix(name, remote+"/"), true
 }
 
 func localBranchExists(root, branch string) bool {
@@ -362,7 +433,11 @@ func runAddDirect(cmd *cobra.Command, args []string, remote, root string) (strin
 	var plan inferredAdd
 	inferred := false
 	if !cmd.Flags().Changed("branch") && !cmd.Flags().Changed("force-branch") && !boolFlag(cmd, "detach") && !boolFlag(cmd, "orphan") {
-		plan, inferred = planInferredAdd(root, remote, args)
+		var err error
+		plan, inferred, err = planInferredAdd(root, remote, args)
+		if err != nil {
+			return "", err
+		}
 	}
 	if len(args) > 0 {
 		args[0] = addPath(root, args[0])

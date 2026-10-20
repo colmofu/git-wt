@@ -805,6 +805,11 @@ func removeSingleWorktree(target removalTarget, opts removeOptions, cleanup bool
 		return err
 	}
 	deleteRemote := target.deletesRemote(opts, cleanup)
+	cleanupRoot, _ := worktree.BareRoot()
+	cwd, _ := os.Getwd()
+	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = resolved
+	}
 	if err := ui.SpinWithOutputContext(fmt.Sprintf("Removing worktree %s", ui.Accent(name)), func(ctx context.Context, w io.Writer) error {
 		args := []string{"worktree", "remove"}
 		if opts.force {
@@ -814,9 +819,8 @@ func removeSingleWorktree(target removalTarget, opts removeOptions, cleanup bool
 	}); err != nil {
 		return err
 	}
-	if root, err := worktree.BareRoot(); err == nil {
-		removeEmptyParents(root, target.path)
-	}
+	// Runs last, after branch deletion and hooks, whether or not they succeed.
+	defer removeEmptyParents(cleanupRoot, target.path, cwd)
 
 	if target.hasBranch() {
 		if err := deleteLocalBranch(target.branch, branchHead); err != nil {
@@ -936,9 +940,17 @@ func worktreeLabel(path string) string {
 
 // removeEmptyParents deletes directories that removing a nested worktree such
 // as hotfix/x left empty, stopping at the first non-empty one or the bare root.
-func removeEmptyParents(root, path string) {
+// It keeps cwd and its ancestors: deleting the working directory breaks every
+// later git command in this process.
+func removeEmptyParents(root, path, cwd string) {
 	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
 		if _, ok := pathFromRoot(root, dir); !ok {
+			return
+		}
+		if cwd == "" || dir == cwd {
+			return
+		}
+		if _, inside := pathFromRoot(dir, cwd); inside {
 			return
 		}
 		// os.Remove only deletes empty directories.

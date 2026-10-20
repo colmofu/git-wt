@@ -501,3 +501,60 @@ teardown() {
 	[ "$status" -ne 0 ]
 	assert_branch_not_exists "hotfix/d"
 }
+
+@test "add: trailing slash keeps the full branch name" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+
+	run "$GIT_WT" add hotfix/trailing/
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/trailing" symbolic-ref --short HEAD)" = "hotfix/trailing" ]
+	assert_branch_not_exists "trailing"
+}
+
+@test "add: absolute path through a symlink keeps the full branch name" {
+	init_bare_repo_with_remote myrepo
+	ln -s "$TEST_DIR/myrepo" "$TEST_DIR/link"
+	cd myrepo
+
+	run "$GIT_WT" add "$TEST_DIR/link/hotfix/linked"
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/linked" symbolic-ref --short HEAD)" = "hotfix/linked" ]
+}
+
+@test "add: path starting with a remote name tracks that remote branch" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	create_remote_branch hotfix/r
+	command git branch -D hotfix/r --quiet
+
+	run "$GIT_WT" add origin/hotfix/r
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/origin/hotfix/r" symbolic-ref --short HEAD)" = "hotfix/r" ]
+	[ "$(command git rev-parse --abbrev-ref hotfix/r@{upstream})" = "origin/hotfix/r" ]
+	assert_branch_not_exists "origin/hotfix/r"
+}
+
+@test "add: path starting with a remote name fails when the remote branch is missing" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+
+	run "$GIT_WT" add origin/team/new
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"git wt add team/new"* ]]
+	assert_branch_not_exists "origin/team/new"
+	[ ! -e "$TEST_DIR/myrepo/origin" ]
+}
+
+@test "add: warns when the remote branch's local branch is checked out elsewhere" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	create_remote_branch hotfix/held
+	create_worktree_existing held hotfix/held
+
+	run "$GIT_WT" add other origin/hotfix/held
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"hotfix/held is checked out at"* ]]
+	run command git -C "$TEST_DIR/myrepo/other" symbolic-ref HEAD
+	[ "$status" -ne 0 ]
+}

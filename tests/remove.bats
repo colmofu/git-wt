@@ -277,3 +277,16 @@ teardown() {
 	[ -d "$TEST_DIR/myrepo/hotfix/a" ]
 	assert_worktree_exists "$TEST_DIR/myrepo/hotfix/a"
 }
+
+@test "remove: keeps the parent directory when it is the current directory" {
+	init_bare_repo myrepo
+	cd myrepo
+	create_worktree hotfix/x hotfix/x
+	cd hotfix
+
+	run bash -c 'printf "y\n" | "$1" remove x' _ "$GIT_WT"
+	[ "$status" -eq 0 ]
+	[ -d "$TEST_DIR/myrepo/hotfix" ]
+	[ ! -e "$TEST_DIR/myrepo/hotfix/x" ]
+	assert_branch_not_exists "hotfix/x"
+}
