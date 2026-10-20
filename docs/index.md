@@ -35,22 +35,12 @@ worktree directory.
 
 ### Installation
 
-**Homebrew**
+This fork is installed from source (Go 1.25+, Git 2.48.0+):
 
 ```bash
-brew install ahmedelgabri/tap/git-wt
-```
-
-**mise**
-
-```bash
-mise use "github:ahmedelgabri/git-wt"
-```
-
-**Nix Flakes**
-
-```bash
-nix run github:ahmedelgabri/git-wt
+git clone https://github.com/colmofu/git-wt
+cd git-wt
+go install ./cmd/git-wt
 ```
 
 ### Basic Usage

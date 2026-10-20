@@ -31,6 +31,7 @@ This is a fork of [ahmedelgabri/git-wt](https://github.com/ahmedelgabri/git-wt),
 Changes from upstream:
 
 - **No `destroy` alias.** Upstream maps `destroy` to `remove --delete-remote`. Here `destroy` is not a command, so a mistyped or agent-run `destroy` cannot delete a remote branch. `git wt remove --delete-remote` still works when you pass it yourself.
+- **Installed from source only.** No Homebrew tap, releases or Nix/mise packages; the release workflow is removed so the fork never publishes to upstream's tap.
 - **The agent skill never deletes remote branches.** `skills/git-wt/SKILL.md` drops the remote-deletion section and the piped-confirmation example, and tells agents to leave remote deletion to the user.
 
 Everything else, including the docs below, follows upstream.
@@ -39,10 +40,6 @@ Everything else, including the docs below, follows upstream.
 
 - [About this fork](#about-this-fork)
 - [Installation](#installation)
-  - [Homebrew](#homebrew)
-  - [mise](#mise)
-  - [Nix flakes](#nix-flakes)
-  - [Manual installation](#manual-installation)
   - [Shell completions](#shell-completions)
 - [Usage](#usage)
   - [Clone a repository](#clone-a-repository)
@@ -60,67 +57,32 @@ Everything else, including the docs below, follows upstream.
 
 ## Installation
 
-Requires Git 2.48.0 or newer.
-
-### Homebrew
+Requires Go 1.25+ and Git 2.48.0 or newer. This fork is installed from source; Homebrew, mise, Nix and release downloads install upstream's version, not this one.
 
 ```bash
-brew install ahmedelgabri/tap/git-wt
+git clone https://github.com/colmofu/git-wt
+cd git-wt
+go install ./cmd/git-wt
 ```
 
-Includes shell completions for bash, zsh, and fish.
+This puts `git-wt` in `$(go env GOPATH)/bin`; make sure that directory is on your `$PATH`. To update, `git pull` and run `go install ./cmd/git-wt` again.
 
-### mise
-
-```bash
-mise use "github:ahmedelgabri/git-wt"
-```
-
-### Nix flakes
-
-Run without installing:
-
-```bash
-nix run github:ahmedelgabri/git-wt
-```
-
-Or add it to your flake inputs:
-
-```nix
-{
-  inputs.git-wt.url = "github:ahmedelgabri/git-wt";
-}
-```
-
-Then include `inputs.git-wt.packages.${system}.default` in your packages.
-
-### Manual installation
-
-Download the archive for your platform from the [latest release](https://github.com/ahmedelgabri/git-wt/releases/latest).
-
-Extract it and copy `git-wt` to a directory in your `$PATH`:
-
-```bash
-tar xzf git-wt-VERSION-OS-ARCH.tar.gz
-cp git-wt-VERSION-OS-ARCH/git-wt ~/.local/bin/
-```
-
-Replace `VERSION`, `OS`, and `ARCH` with the values in the archive name.
+`go install github.com/colmofu/git-wt/...@latest` does not work, because the module path is still `github.com/ahmedelgabri/git-wt` to keep merging upstream easy.
 
 ### Shell completions
 
-For manual installs, copy files from the archive's `completions/` directory:
+Generate them with the installed binary:
 
 ```bash
 # Bash
-cp completions/git-wt.bash ~/.local/share/bash-completion/completions/git-wt
+git-wt completion bash > ~/.local/share/bash-completion/completions/git-wt
 
 # Zsh
-cp completions/_git-wt ~/.local/share/zsh/site-functions/_git-wt
-cp completions/_git_wt ~/.local/share/zsh/site-functions/_git_wt
+git-wt completion zsh > ~/.local/share/zsh/site-functions/_git-wt
+git-wt completion zsh-git > ~/.local/share/zsh/site-functions/_git_wt
 
 # Fish
-cp completions/git-wt.fish ~/.config/fish/completions/git-wt.fish
+git-wt completion fish > ~/.config/fish/completions/git-wt.fish
 ```
 
 Zsh needs both files. `_git-wt` completes `git-wt`; `_git_wt` completes `git wt`.
@@ -346,7 +308,7 @@ go test ./...        # Run Go tests
 bats tests/          # Run end-to-end tests
 ```
 
-See the [development guide](docs/ci-cd-setup.md) for CI and release details.
+See the [development guide](docs/ci-cd-setup.md) for CI details. Its release sections apply to upstream only.
 
 ## License
 
