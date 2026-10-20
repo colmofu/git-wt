@@ -428,3 +428,155 @@ teardown() {
 	assert_worktree_exists "$TEST_DIR/myrepo/reset-wt"
 	assert_branch_exists "reset-branch"
 }
+
+@test "add: path-only slash path creates branch with the full name" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+
+	run "$GIT_WT" add hotfix/memory-leak-fix
+	[ "$status" -eq 0 ]
+	assert_worktree_exists "$TEST_DIR/myrepo/hotfix/memory-leak-fix"
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/memory-leak-fix" symbolic-ref --short HEAD)" = "hotfix/memory-leak-fix" ]
+	assert_branch_not_exists "memory-leak-fix"
+	[[ "$output" == *"git push -u origin hotfix/memory-leak-fix"* ]]
+}
+
+@test "add: path-only slash path tracks the matching remote branch" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	create_remote_branch hotfix/memory-leak-fix
+	command git branch -D hotfix/memory-leak-fix --quiet
+
+	run "$GIT_WT" add hotfix/memory-leak-fix
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/memory-leak-fix" symbolic-ref --short HEAD)" = "hotfix/memory-leak-fix" ]
+	[ "$(command git rev-parse --abbrev-ref hotfix/memory-leak-fix@{upstream})" = "origin/hotfix/memory-leak-fix" ]
+	[ "$(command git rev-parse hotfix/memory-leak-fix)" = "$(command git rev-parse origin/hotfix/memory-leak-fix)" ]
+}
+
+@test "add: path-only slash path checks out an existing local branch" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	command git branch hotfix/local main
+
+	run "$GIT_WT" add hotfix/local
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/local" symbolic-ref --short HEAD)" = "hotfix/local" ]
+}
+
+@test "add: path with remote branch creates a tracking local branch" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	create_remote_branch hotfix/x
+	command git branch -D hotfix/x --quiet
+
+	run "$GIT_WT" add hotfix/x origin/hotfix/x
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/x" symbolic-ref --short HEAD)" = "hotfix/x" ]
+	[ "$(command git rev-parse --abbrev-ref hotfix/x@{upstream})" = "origin/hotfix/x" ]
+}
+
+@test "add: path with remote branch reuses a differing local branch and warns" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	create_remote_branch hotfix/y
+	command git branch -f hotfix/y main --quiet
+
+	run "$GIT_WT" add hotfix/y origin/hotfix/y
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/y" symbolic-ref --short HEAD)" = "hotfix/y" ]
+	[ "$(command git rev-parse hotfix/y)" = "$(command git rev-parse main)" ]
+	[[ "$output" == *"Using existing local branch hotfix/y"* ]]
+}
+
+@test "add: --detach with remote branch keeps a detached HEAD" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	create_remote_branch hotfix/d
+	command git branch -D hotfix/d --quiet
+
+	run "$GIT_WT" add --detach hotfix/d origin/hotfix/d
+	[ "$status" -eq 0 ]
+	run command git -C "$TEST_DIR/myrepo/hotfix/d" symbolic-ref HEAD
+	[ "$status" -ne 0 ]
+	assert_branch_not_exists "hotfix/d"
+}
+
+@test "add: trailing slash keeps the full branch name" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+
+	run "$GIT_WT" add hotfix/trailing/
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/trailing" symbolic-ref --short HEAD)" = "hotfix/trailing" ]
+	assert_branch_not_exists "trailing"
+}
+
+@test "add: absolute path through a symlink keeps the full branch name" {
+	init_bare_repo_with_remote myrepo
+	ln -s "$TEST_DIR/myrepo" "$TEST_DIR/link"
+	cd myrepo
+
+	run "$GIT_WT" add "$TEST_DIR/link/hotfix/linked"
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/linked" symbolic-ref --short HEAD)" = "hotfix/linked" ]
+}
+
+@test "add: path starting with a remote name tracks that remote branch" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	create_remote_branch hotfix/r
+	command git branch -D hotfix/r --quiet
+
+	run "$GIT_WT" add origin/hotfix/r
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/origin/hotfix/r" symbolic-ref --short HEAD)" = "hotfix/r" ]
+	[ "$(command git rev-parse --abbrev-ref hotfix/r@{upstream})" = "origin/hotfix/r" ]
+	assert_branch_not_exists "origin/hotfix/r"
+}
+
+@test "add: path starting with a remote name fails when the remote branch is missing" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+
+	run "$GIT_WT" add origin/team/new
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"git wt add team/new"* ]]
+	assert_branch_not_exists "origin/team/new"
+	[ ! -e "$TEST_DIR/myrepo/origin" ]
+}
+
+@test "add: warns when the remote branch's local branch is checked out elsewhere" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	create_remote_branch hotfix/held
+	create_worktree_existing held hotfix/held
+
+	run "$GIT_WT" add other origin/hotfix/held
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"hotfix/held is checked out at"* ]]
+	run command git -C "$TEST_DIR/myrepo/other" symbolic-ref HEAD
+	[ "$status" -ne 0 ]
+}
+
+@test "add: path starting with a non-default remote name creates a local branch" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	command git remote add colm "$TEST_DIR/myrepo-origin"
+
+	run "$GIT_WT" add colm/new-thing
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/colm/new-thing" symbolic-ref --short HEAD)" = "colm/new-thing" ]
+	[[ "$output" == *"starts with remote name colm"* ]]
+}
+
+@test "add: path starting with a remote name checks out an existing local branch" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	command git remote add colm "$TEST_DIR/myrepo-origin"
+	command git branch colm/local main
+
+	run "$GIT_WT" add colm/local
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/colm/local" symbolic-ref --short HEAD)" = "colm/local" ]
+}

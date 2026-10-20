@@ -26,15 +26,16 @@ Read [why this layout works](https://gabri.me/blog/git-worktrees-done-right).
 
 ## About this fork
 
-This is a fork of [ahmedelgabri/git-wt](https://github.com/ahmedelgabri/git-wt), based on v3.1.0. All credit for git-wt goes to [Ahmed El Gabri](https://github.com/ahmedelgabri); the fork only makes it harder to delete remote branches by accident, especially when AI agents run the commands.
+This is a fork of [ahmedelgabri/git-wt](https://github.com/ahmedelgabri/git-wt), based on v3.1.0. All credit for git-wt goes to [Ahmed El Gabri](https://github.com/ahmedelgabri); the fork makes it harder to delete remote branches by accident, especially when AI agents run the commands, and keeps slash branch names such as `hotfix/x` intact.
 
 Changes from upstream:
 
 - **No `destroy` alias.** Upstream maps `destroy` to `remove --delete-remote`. Here `destroy` is not a command, so a mistyped or agent-run `destroy` cannot delete a remote branch. `git wt remove --delete-remote` still works when you pass it yourself.
 - **Installed from source only.** No Homebrew tap, releases or Nix/mise packages; the release workflow is removed so the fork never publishes to upstream's tap.
 - **The agent skill never deletes remote branches.** `skills/git-wt/SKILL.md` drops the remote-deletion section and the piped-confirmation example, and tells agents to leave remote deletion to the user.
+- **Slash paths keep their full branch name.** `git wt add hotfix/x` checks out branch `hotfix/x` (tracking `origin/hotfix/x` if it exists) instead of `x`, `git wt add hotfix/x origin/hotfix/x` gives a local tracking branch instead of a detached HEAD, and `git wt remove hotfix/x` deletes the `hotfix/` folder once it is empty. Flat names work the same way: `git wt add feature` tracks `origin/feature` when it exists, where upstream would branch from HEAD.
 
-Everything else, including the docs below, follows upstream.
+Everything else, including the docs below, follows upstream apart from the `add` examples.
 
 ## Contents
 
@@ -121,8 +122,11 @@ Read the [migration limits and recovery guide](docs/safety.md#migration) before 
 # Choose a branch interactively
 git wt add
 
-# Use an existing remote branch
+# Use an existing remote branch (creates local feature tracking it)
 git wt add feature origin/feature
+
+# Branch named after the path: hotfix/memory-leak-fix
+git wt add hotfix/memory-leak-fix
 
 # Create a new branch and worktree
 git wt add -b new-feature new-feature
