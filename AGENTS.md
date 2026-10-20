@@ -63,8 +63,7 @@ internal/
 │   ├── clone.go
 │   ├── migrate.go
 │   ├── add.go
-│   ├── remove.go            # Also handles destroy via shared logic
-│   ├── destroy.go
+│   ├── remove.go            # destroy alias removed in this fork
 │   ├── preview.go           # Hidden _preview command for fzf --preview
 │   ├── update.go
 │   ├── switch.go

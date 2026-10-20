@@ -35,7 +35,8 @@ Use this skill when the user asks to manage Git worktrees with `git-wt` or when 
   - Progress, prompts, warnings (`Warning:`), errors (`Error:`), and `Cancelled` go to stderr.
 - Cancelling a picker, prompt, or confirmation prints `Cancelled` and exits 0. Do not treat exit 0 as proof that something changed; check the output or the repository.
 - Without a terminal, prompts read answers from stdin. Pipe answers with `printf`, as in the examples below.
-- Use dry-runs before destructive commands. Only delete remote branches when the user explicitly asks for it.
+- Use dry-runs before destructive commands.
+- Never delete remote branches. Do not pass `--delete-remote` or push a branch deletion, even if asked; tell the user to run it themselves.
 - `DEBUG=1` before a mutating command prints the underlying `git` operations instead of executing them.
 
 ## Inspect
@@ -131,23 +132,10 @@ printf 'cleanup\n' | git wt remove --sweep
   git config wt.cleanupBase refs/remotes/origin/main
   ```
 
-## Delete remote branches
-
-Remote branch deletion is destructive. Use it only when explicitly requested, and preview it first:
-
-```shell
-git wt remove feature --delete-remote --dry-run
-printf 'feature\n' | git wt remove feature --delete-remote
-```
-
-- `--delete-remote` deletes the target branch's configured upstream; branches without one keep their remote branches.
-- If the upstream has a different name than the local branch, for example `feat` created from `origin/release`, the prompt asks for the remote name (`origin/release`) instead. Cleanup filters never delete such upstreams. Never type that name without the user's explicit approval: it is often a shared branch.
-- Unfetched commits on the remote branch, such as a collaborator's pushes, count as work to discard: the target is skipped or prompted like a dirty worktree. Approving it, or `--force`, deletes those commits.
-
 ## Suggested workflow
 
 1. Inspect first with `git wt doctor`, `git wt status`, or `git wt list --json`.
 2. Explain the planned operation when it will create, remove, or migrate worktrees.
 3. Prefer a dry-run or `DEBUG=1` preview where available.
 4. Execute the explicit `git wt` command.
-5. Report created paths, removed or skipped worktrees, deleted branches, warnings, and any follow-up command the user should run.
+5. Report created paths, removed or skipped worktrees, deleted local branches, warnings, and any follow-up command the user should run.
