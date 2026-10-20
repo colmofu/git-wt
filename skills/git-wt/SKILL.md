@@ -84,7 +84,9 @@ git wt add -b new-feature new-feature
 git wt add --detach hotfix HEAD~5
 ```
 
-Without `-b`, `-B`, `--detach` or `--orphan`, the branch takes the full path from the repository root: `git wt add hotfix/x` checks out `hotfix/x`, tracking `origin/hotfix/x` when it exists. `git wt add <path> origin/<branch>` creates local `<branch>` tracking the remote, not a detached HEAD.
+Without `-b`, `-B`, `--detach` or `--orphan`, the branch takes the full path from the repository root: `git wt add hotfix/x` checks out `hotfix/x`, tracking `origin/hotfix/x` when it exists. `git wt add <path> origin/<branch>` creates local `<branch>` tracking the remote, not a detached HEAD; if `<branch>` is already checked out in another worktree, it warns and falls back to a detached HEAD.
+
+A path starting with a remote name, such as `git wt add origin/team/x`, checks out `team/x` tracking `origin/team/x`. If that remote branch does not exist and the prefix is the default remote, add fails and suggests `git wt add team/x`; pass that instead of guessing.
 
 If add reuses an existing local branch that differs from the selected remote branch, it warns on stderr and keeps the local commit. Tell the user rather than resetting the branch.
 

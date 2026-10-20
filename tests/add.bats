@@ -558,3 +558,25 @@ teardown() {
 	run command git -C "$TEST_DIR/myrepo/other" symbolic-ref HEAD
 	[ "$status" -ne 0 ]
 }
+
+@test "add: path starting with a non-default remote name creates a local branch" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	command git remote add colm "$TEST_DIR/myrepo-origin"
+
+	run "$GIT_WT" add colm/new-thing
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/colm/new-thing" symbolic-ref --short HEAD)" = "colm/new-thing" ]
+	[[ "$output" == *"starts with remote name colm"* ]]
+}
+
+@test "add: path starting with a remote name checks out an existing local branch" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	command git remote add colm "$TEST_DIR/myrepo-origin"
+	command git branch colm/local main
+
+	run "$GIT_WT" add colm/local
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/colm/local" symbolic-ref --short HEAD)" = "colm/local" ]
+}

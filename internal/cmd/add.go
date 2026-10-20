@@ -30,7 +30,8 @@ Without -b/-B/--detach/--orphan, the branch is named after the full path from
 the repository root, so hotfix/x checks out hotfix/x, not x. An existing local
 branch is used as is; otherwise the branch is created to track the remote
 branch of that name when one exists, or from HEAD. A path starting with a
-remote name, such as origin/team/x, checks out team/x tracking origin/team/x.
+remote name, such as origin/team/x, checks out team/x tracking origin/team/x
+when that remote branch exists and no local origin/team/x branch does.
 Given a remote branch as <commit-ish>, a local branch of the same name is
 checked out (created to track it if needed) instead of a detached HEAD, unless
 that branch is checked out in another worktree.
@@ -282,19 +283,27 @@ func planInferredAdd(root, remote string, args []string) (inferredAdd, bool, err
 		if !ok {
 			return inferredAdd{}, false, nil
 		}
-		// A path like origin/team/new names a remote branch, not a local one.
-		if r, b, ok := splitRemotePrefix(remoteNames(root), branch); ok {
-			if !refExists(root, "refs/remotes/"+r+"/"+b) {
-				return inferredAdd{}, false, fmt.Errorf("%s is not a remote branch, and %s would be an ambiguous local branch name; did you mean `git wt add %s`?", branch, branch, b)
-			}
-			return planFromRemoteBranch(root, r+"/"+b, b), true, nil
-		}
 		if localBranchExists(root, branch) {
 			return inferredAdd{branch: branch}, true, nil
+		}
+		// A path like origin/team/new names a remote branch, not a local one.
+		prefixRemote, b, prefixed := splitRemotePrefix(remoteNames(root), branch)
+		if prefixed {
+			if refExists(root, "refs/remotes/"+prefixRemote+"/"+b) {
+				return planFromRemoteBranch(root, prefixRemote+"/"+b, b), true, nil
+			}
+			// Only the default remote is a likely typo; other remote names,
+			// such as a person's, are common branch prefixes.
+			if prefixRemote == remote {
+				return inferredAdd{}, false, fmt.Errorf("%s is not a remote branch, and %s would be an ambiguous local branch name; did you mean `git wt add %s`?", branch, branch, b)
+			}
 		}
 		if remote != "" && refExists(root, "refs/remotes/"+remote+"/"+branch) {
 			ref := remote + "/" + branch
 			return inferredAdd{branch: branch, create: true, start: ref, upstream: ref}, true, nil
+		}
+		if prefixed {
+			ui.Warnf("%s starts with remote name %s; creating new local branch %s from HEAD", branch, prefixRemote, branch)
 		}
 		return inferredAdd{branch: branch, create: true}, true, nil
 	case 2:
