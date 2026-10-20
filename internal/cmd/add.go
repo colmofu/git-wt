@@ -26,10 +26,18 @@ flags are supported; see the options below.
 Always fetches from the remote before creating the worktree. When using -b/-B,
 upstream tracking is set automatically if the branch exists on the remote.
 
+Without -b/-B/--detach/--orphan, the branch is named after the full path from
+the repository root, so hotfix/x checks out hotfix/x, not x. An existing local
+branch is used as is; otherwise the branch is created to track the remote
+branch of that name when one exists, or from HEAD. Given a remote branch as <commit-ish>,
+a local branch of the same name is checked out (created to track it if needed)
+instead of a detached HEAD.
+
 On success, prints the absolute created worktree path to stdout. Human-oriented
 progress, prompts, and hints are written to stderr.`,
 	Example: `  git wt add                               # Interactive selection
-  git wt add feature origin/feature        # From remote branch
+  git wt add feature origin/feature        # Local feature tracking origin/feature
+  git wt add hotfix/memory-leak-fix        # Branch hotfix/memory-leak-fix
   git wt add -b new-feature new-feature    # New branch
   git wt add --detach hotfix HEAD~5        # Detached HEAD worktree`,
 	SilenceUsage:  true,
@@ -231,8 +239,131 @@ func addPath(root, path string) string {
 	return filepath.Join(root, path)
 }
 
+// inferredAdd is how direct mode checks out a branch when no branch flag is
+// given. Git would name the branch after the path's last element, or detach
+// HEAD at a remote ref; both lose names like hotfix/x.
+type inferredAdd struct {
+	branch string
+	// create makes branch with -b, starting at start, or HEAD when empty.
+	create bool
+	start  string
+	// upstream is the remote ref the new branch tracks.
+	upstream string
+	// requested is the remote ref asked for when an existing local branch is
+	// used instead, so a differing tip can be reported.
+	requested string
+}
+
+func (p inferredAdd) gitArgs(path string) []string {
+	if !p.create {
+		return []string{"--", path, p.branch}
+	}
+	args := []string{"-b", p.branch, "--", path}
+	if p.start != "" {
+		args = append(args, p.start)
+	}
+	return args
+}
+
+// planInferredAdd handles `add <path>` and `add <path> <remote>/<branch>`. It
+// reports false when git's own behaviour should apply unchanged.
+func planInferredAdd(root, remote string, args []string) (inferredAdd, bool) {
+	switch len(args) {
+	case 1:
+		branch, ok := inferBranchFromPath(root, args[0])
+		if !ok {
+			return inferredAdd{}, false
+		}
+		if localBranchExists(root, branch) {
+			return inferredAdd{branch: branch}, true
+		}
+		if remote != "" && refExists(root, "refs/remotes/"+remote+"/"+branch) {
+			ref := remote + "/" + branch
+			return inferredAdd{branch: branch, create: true, start: ref, upstream: ref}, true
+		}
+		return inferredAdd{branch: branch, create: true}, true
+	case 2:
+		ref, branch, ok := remoteBranchRef(root, args[1])
+		if !ok {
+			return inferredAdd{}, false
+		}
+		if localBranchExists(root, branch) {
+			if checkedOutBranches()[branch] {
+				return inferredAdd{}, false
+			}
+			return inferredAdd{branch: branch, requested: ref}, true
+		}
+		return inferredAdd{branch: branch, create: true, start: ref, upstream: ref}, true
+	}
+	return inferredAdd{}, false
+}
+
+// inferBranchFromPath names the branch after the worktree path relative to the
+// bare root, so hotfix/x checks out hotfix/x rather than x.
+func inferBranchFromPath(root, path string) (string, bool) {
+	if strings.HasSuffix(path, "/") {
+		return "", false
+	}
+	name, ok := pathFromRoot(root, addPath(root, path))
+	if !ok || !validBranchName(name) {
+		return "", false
+	}
+	return name, true
+}
+
+func validBranchName(name string) bool {
+	if name == "" || name == "HEAD" || strings.HasPrefix(name, "-") {
+		return false
+	}
+	out, err := git.Query("check-ref-format", "--branch", name)
+	return err == nil && out == name
+}
+
+// remoteBranchRef reports whether commitish names a remote-tracking branch,
+// returning it as <remote>/<branch> along with the branch name.
+func remoteBranchRef(root, commitish string) (ref, branch string, ok bool) {
+	full, err := git.QueryIn(root, "rev-parse", "--symbolic-full-name", commitish)
+	if err != nil || !strings.HasPrefix(full, "refs/remotes/") {
+		return "", "", false
+	}
+	remotes, err := git.QueryIn(root, "remote")
+	if err != nil {
+		return "", "", false
+	}
+	// Remote names may contain slashes, so prefer the longest match.
+	remote := ""
+	for r := range strings.SplitSeq(remotes, "\n") {
+		r = strings.TrimSpace(r)
+		if r != "" && len(r) > len(remote) && strings.HasPrefix(full, "refs/remotes/"+r+"/") {
+			remote = r
+		}
+	}
+	if remote == "" {
+		return "", "", false
+	}
+	branch = strings.TrimPrefix(full, "refs/remotes/"+remote+"/")
+	if !validBranchName(branch) {
+		return "", "", false
+	}
+	return remote + "/" + branch, branch, true
+}
+
+func localBranchExists(root, branch string) bool {
+	return refExists(root, "refs/heads/"+branch)
+}
+
+func refExists(root, ref string) bool {
+	_, err := git.QueryIn(root, "show-ref", "--verify", "--quiet", ref)
+	return err == nil
+}
+
 func runAddDirect(cmd *cobra.Command, args []string, remote, root string) (string, error) {
 	args = append([]string(nil), args...)
+	var plan inferredAdd
+	inferred := false
+	if !cmd.Flags().Changed("branch") && !cmd.Flags().Changed("force-branch") && !boolFlag(cmd, "detach") && !boolFlag(cmd, "orphan") {
+		plan, inferred = planInferredAdd(root, remote, args)
+	}
 	if len(args) > 0 {
 		args[0] = addPath(root, args[0])
 	}
@@ -256,10 +387,6 @@ func runAddDirect(cmd *cobra.Command, args []string, remote, root string) (strin
 		}
 	}
 
-	// Append positional args (path, commit-ish).
-	gitArgs = append(gitArgs, "--")
-	gitArgs = append(gitArgs, args...)
-
 	createdPath := ""
 	if len(args) > 0 {
 		createdPath = args[0]
@@ -268,6 +395,18 @@ func runAddDirect(cmd *cobra.Command, args []string, remote, root string) (strin
 	trackBranch := branch
 	if trackBranch == "" {
 		trackBranch = forceBranch
+	}
+	// A branch new from HEAD gets the same upstream handling as -b/-B.
+	defaultUpstream := trackBranch != ""
+
+	// Append positional args (path, commit-ish).
+	if inferred {
+		gitArgs = append(gitArgs, plan.gitArgs(createdPath)...)
+		trackBranch = plan.branch
+		defaultUpstream = plan.create && plan.start == ""
+	} else {
+		gitArgs = append(gitArgs, "--")
+		gitArgs = append(gitArgs, args...)
 	}
 
 	fullArgs := append([]string{"worktree", "add"}, gitArgs...)
@@ -279,8 +418,17 @@ func runAddDirect(cmd *cobra.Command, args []string, remote, root string) (strin
 			return err
 		}
 
-		// Set upstream tracking if -b/-B was used.
-		if trackBranch != "" && remote != "" && !boolFlag(cmd, "no-track") {
+		if plan.requested != "" {
+			warnReusedLocalBranch(root, plan.branch, plan.requested)
+		}
+		if plan.upstream != "" && !boolFlag(cmd, "no-track") {
+			return ui.SpinWithOutputContext(fmt.Sprintf("Setting upstream to %s", ui.Accent(plan.upstream)), func(ctx context.Context, w io.Writer) error {
+				return git.RunInToContext(ctx, root, w, "branch", "--set-upstream-to="+plan.upstream, plan.branch)
+			})
+		}
+
+		// Set upstream tracking for a new branch.
+		if defaultUpstream && remote != "" && !boolFlag(cmd, "no-track") {
 			if _, err := git.QueryIn(root, "rev-parse", "--verify", "refs/remotes/"+remote+"/"+trackBranch); err == nil {
 				if err := ui.SpinWithOutputContext(fmt.Sprintf("Setting upstream to %s", ui.Accent(remote+"/"+trackBranch)), func(ctx context.Context, w io.Writer) error {
 					return git.RunInToContext(ctx, root, w, "branch", "--set-upstream-to="+remote+"/"+trackBranch, trackBranch)

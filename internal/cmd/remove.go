@@ -370,7 +370,7 @@ func checkRemovalItems(items []removalItem, opts removeOptions, cleanup bool) (r
 
 // confirmDiscard asks for the worktree's name, not y/N: approving it loses work.
 func confirmDiscard(target removalTarget, unsafe *unsafeRemovalError) bool {
-	name := filepath.Base(target.path)
+	name := worktreeLabel(target.path)
 	fmt.Println(ui.Red(name + " has work that removal would discard:"))
 	for _, problem := range unsafe.problems {
 		fmt.Println("  " + ui.Subtle("-") + " " + problem)
@@ -415,9 +415,9 @@ func confirmRemoval(items []removalItem, opts removeOptions, cleanup bool) bool 
 	if len(items) == 1 {
 		target := items[0].Target
 		if target.hasBranch() {
-			return ui.Confirm(fmt.Sprintf("Remove '%s' and delete its local branch? [y/N]:", filepath.Base(target.path)))
+			return ui.Confirm(fmt.Sprintf("Remove '%s' and delete its local branch? [y/N]:", worktreeLabel(target.path)))
 		}
-		return ui.Confirm(fmt.Sprintf("Remove '%s'? [y/N]:", filepath.Base(target.path)))
+		return ui.Confirm(fmt.Sprintf("Remove '%s'? [y/N]:", worktreeLabel(target.path)))
 	}
 
 	return ui.Confirm(fmt.Sprintf("Remove %d worktree(s) and delete local branches where applicable? [y/N]:", len(items)))
@@ -621,7 +621,7 @@ func executeRemovalItems(items []removalItem, opts removeOptions, cleanup bool) 
 	for i, item := range items {
 		if len(items) > 1 {
 			counter := ui.Dim(fmt.Sprintf("[%d/%d]", i+1, len(items)))
-			fmt.Printf("%s %s\n", counter, ui.Bold(filepath.Base(item.Target.path)))
+			fmt.Printf("%s %s\n", counter, ui.Bold(worktreeLabel(item.Target.path)))
 		}
 
 		var err error
@@ -675,7 +675,7 @@ func pruneStaleWorktree(target removalTarget) error {
 	if _, stale := pruneReason(*entry); !stale {
 		return fmt.Errorf("worktree is no longer a missing, unlocked prune candidate: %s", target.path)
 	}
-	name := filepath.Base(target.path)
+	name := worktreeLabel(target.path)
 	return ui.SpinWithOutputContext(fmt.Sprintf("Pruning stale metadata for %s", ui.Accent(name)), func(ctx context.Context, w io.Writer) error {
 		return git.RunToContext(ctx, w, "worktree", "remove", "--", target.path)
 	})
@@ -741,7 +741,7 @@ func checkRemoval(target removalTarget, opts removeOptions, cleanup bool) (branc
 }
 
 func removeSingleWorktree(target removalTarget, opts removeOptions, cleanup bool) error {
-	name := filepath.Base(target.path)
+	name := worktreeLabel(target.path)
 
 	runHooks, err := preflightRemoveHook(target)
 	if err != nil {
@@ -813,6 +813,9 @@ func removeSingleWorktree(target removalTarget, opts removeOptions, cleanup bool
 		return git.RunToContext(ctx, w, append(args, "--", target.path)...)
 	}); err != nil {
 		return err
+	}
+	if root, err := worktree.BareRoot(); err == nil {
+		removeEmptyParents(root, target.path)
 	}
 
 	if target.hasBranch() {
@@ -919,6 +922,30 @@ func pickerWorkspaceNameWithBareRoot(path, bareRoot string) string {
 		return strings.TrimPrefix(path, bareRoot+string(os.PathSeparator))
 	}
 	return filepath.Base(path)
+}
+
+// worktreeLabel names a worktree by its path from the bare root, so nested
+// worktrees such as hotfix/x keep their full name in prompts.
+func worktreeLabel(path string) string {
+	root, _ := worktree.BareRoot()
+	if name, ok := pathFromRoot(root, path); ok {
+		return name
+	}
+	return filepath.Base(path)
+}
+
+// removeEmptyParents deletes directories that removing a nested worktree such
+// as hotfix/x left empty, stopping at the first non-empty one or the bare root.
+func removeEmptyParents(root, path string) {
+	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
+		if _, ok := pathFromRoot(root, dir); !ok {
+			return
+		}
+		// os.Remove only deletes empty directories.
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+	}
 }
 
 func removalPreviewMode(deleteRemote bool) string {

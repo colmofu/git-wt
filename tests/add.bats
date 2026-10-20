@@ -428,3 +428,76 @@ teardown() {
 	assert_worktree_exists "$TEST_DIR/myrepo/reset-wt"
 	assert_branch_exists "reset-branch"
 }
+
+@test "add: path-only slash path creates branch with the full name" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+
+	run "$GIT_WT" add hotfix/memory-leak-fix
+	[ "$status" -eq 0 ]
+	assert_worktree_exists "$TEST_DIR/myrepo/hotfix/memory-leak-fix"
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/memory-leak-fix" symbolic-ref --short HEAD)" = "hotfix/memory-leak-fix" ]
+	assert_branch_not_exists "memory-leak-fix"
+	[[ "$output" == *"git push -u origin hotfix/memory-leak-fix"* ]]
+}
+
+@test "add: path-only slash path tracks the matching remote branch" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	create_remote_branch hotfix/memory-leak-fix
+	command git branch -D hotfix/memory-leak-fix --quiet
+
+	run "$GIT_WT" add hotfix/memory-leak-fix
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/memory-leak-fix" symbolic-ref --short HEAD)" = "hotfix/memory-leak-fix" ]
+	[ "$(command git rev-parse --abbrev-ref hotfix/memory-leak-fix@{upstream})" = "origin/hotfix/memory-leak-fix" ]
+	[ "$(command git rev-parse hotfix/memory-leak-fix)" = "$(command git rev-parse origin/hotfix/memory-leak-fix)" ]
+}
+
+@test "add: path-only slash path checks out an existing local branch" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	command git branch hotfix/local main
+
+	run "$GIT_WT" add hotfix/local
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/local" symbolic-ref --short HEAD)" = "hotfix/local" ]
+}
+
+@test "add: path with remote branch creates a tracking local branch" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	create_remote_branch hotfix/x
+	command git branch -D hotfix/x --quiet
+
+	run "$GIT_WT" add hotfix/x origin/hotfix/x
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/x" symbolic-ref --short HEAD)" = "hotfix/x" ]
+	[ "$(command git rev-parse --abbrev-ref hotfix/x@{upstream})" = "origin/hotfix/x" ]
+}
+
+@test "add: path with remote branch reuses a differing local branch and warns" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	create_remote_branch hotfix/y
+	command git branch -f hotfix/y main --quiet
+
+	run "$GIT_WT" add hotfix/y origin/hotfix/y
+	[ "$status" -eq 0 ]
+	[ "$(command git -C "$TEST_DIR/myrepo/hotfix/y" symbolic-ref --short HEAD)" = "hotfix/y" ]
+	[ "$(command git rev-parse hotfix/y)" = "$(command git rev-parse main)" ]
+	[[ "$output" == *"Using existing local branch hotfix/y"* ]]
+}
+
+@test "add: --detach with remote branch keeps a detached HEAD" {
+	init_bare_repo_with_remote myrepo
+	cd myrepo
+	create_remote_branch hotfix/d
+	command git branch -D hotfix/d --quiet
+
+	run "$GIT_WT" add --detach hotfix/d origin/hotfix/d
+	[ "$status" -eq 0 ]
+	run command git -C "$TEST_DIR/myrepo/hotfix/d" symbolic-ref HEAD
+	[ "$status" -ne 0 ]
+	assert_branch_not_exists "hotfix/d"
+}

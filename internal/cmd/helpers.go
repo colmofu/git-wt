@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/ahmedelgabri/git-wt/internal/git"
@@ -62,4 +63,17 @@ func cleanupLocalBranchRefs(dir string) {
 		}
 		git.RunInWithOutput(dir, "branch", "-D", ref)
 	}
+}
+
+// pathFromRoot returns path relative to root, with forward slashes, when path
+// lies strictly below root.
+func pathFromRoot(root, path string) (string, bool) {
+	if root == "" {
+		return "", false
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || filepath.IsAbs(rel) || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
 }

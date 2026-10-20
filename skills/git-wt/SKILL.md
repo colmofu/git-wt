@@ -79,11 +79,14 @@ Migration is experimental. Ask the user to stop editors, builds, and other Git c
 
 ```shell
 git wt add feature origin/feature
+git wt add hotfix/memory-leak-fix
 git wt add -b new-feature new-feature
 git wt add --detach hotfix HEAD~5
 ```
 
-If interactive add reuses an existing local branch that differs from the selected remote branch, it warns on stderr and keeps the local commit. Tell the user rather than resetting the branch.
+Without `-b`, `-B`, `--detach` or `--orphan`, the branch takes the full path from the repository root: `git wt add hotfix/x` checks out `hotfix/x`, tracking `origin/hotfix/x` when it exists. `git wt add <path> origin/<branch>` creates local `<branch>` tracking the remote, not a detached HEAD.
+
+If add reuses an existing local branch that differs from the selected remote branch, it warns on stderr and keeps the local commit. Tell the user rather than resetting the branch.
 
 ## Update
 

@@ -240,3 +240,40 @@ teardown() {
 	assert_worktree_not_exists "$TEST_DIR/myrepo/feature-remote"
 	assert_branch_not_exists "feature-remote"
 }
+
+@test "remove: deletes empty parent directories of a nested worktree" {
+	init_bare_repo myrepo
+	cd myrepo
+	create_worktree hotfix/a hotfix/a
+
+	run bash -c 'printf "y\n" | "$1" remove hotfix/a' _ "$GIT_WT"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"Remove 'hotfix/a'"* ]]
+	assert_worktree_not_exists "$TEST_DIR/myrepo/hotfix/a"
+	[ ! -e "$TEST_DIR/myrepo/hotfix" ]
+	[ -d "$TEST_DIR/myrepo/.bare" ]
+}
+
+@test "remove: keeps parent directory that holds another worktree" {
+	init_bare_repo myrepo
+	cd myrepo
+	create_worktree hotfix/a hotfix/a
+	create_worktree hotfix/b hotfix/b
+
+	run bash -c 'printf "y\n" | "$1" remove hotfix/a' _ "$GIT_WT"
+	[ "$status" -eq 0 ]
+	[ ! -e "$TEST_DIR/myrepo/hotfix/a" ]
+	[ -d "$TEST_DIR/myrepo/hotfix/b" ]
+	assert_worktree_exists "$TEST_DIR/myrepo/hotfix/b"
+}
+
+@test "remove: --dry-run leaves nested worktree directories" {
+	init_bare_repo myrepo
+	cd myrepo
+	create_worktree hotfix/a hotfix/a
+
+	run "$GIT_WT" remove --dry-run hotfix/a
+	[ "$status" -eq 0 ]
+	[ -d "$TEST_DIR/myrepo/hotfix/a" ]
+	assert_worktree_exists "$TEST_DIR/myrepo/hotfix/a"
+}
