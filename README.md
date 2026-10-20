@@ -24,8 +24,20 @@ my-project/
 
 Read [why this layout works](https://gabri.me/blog/git-worktrees-done-right).
 
+## About this fork
+
+This is a fork of [ahmedelgabri/git-wt](https://github.com/ahmedelgabri/git-wt), based on v3.1.0. All credit for git-wt goes to [Ahmed El Gabri](https://github.com/ahmedelgabri); the fork only makes it harder to delete remote branches by accident, especially when AI agents run the commands.
+
+Changes from upstream:
+
+- **No `destroy` alias.** Upstream maps `destroy` to `remove --delete-remote`. Here `destroy` is not a command, so a mistyped or agent-run `destroy` cannot delete a remote branch. `git wt remove --delete-remote` still works when you pass it yourself.
+- **The agent skill never deletes remote branches.** `skills/git-wt/SKILL.md` drops the remote-deletion section and the piped-confirmation example, and tells agents to leave remote deletion to the user.
+
+Everything else, including the docs below, follows upstream.
+
 ## Contents
 
+- [About this fork](#about-this-fork)
 - [Installation](#installation)
   - [Homebrew](#homebrew)
   - [mise](#mise)
