@@ -1,5 +1,7 @@
 # CI/CD and Development Workflow Setup
 
+> **Fork note:** this fork has no release workflow or Homebrew tap. The release and Homebrew sections below describe upstream only.
+
 This document describes the CI/CD pipeline, release process, and pre-commit
 hooks added to git-wt.
 

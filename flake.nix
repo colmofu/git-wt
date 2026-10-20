@@ -77,7 +77,7 @@
 
             meta = {
               mainProgram = "git-wt";
-              homepage = "https://github.com/ahmedelgabri/git-wt";
+              homepage = "https://github.com/colmofu/git-wt";
               description = "Git worktree management tool";
               license = lib.licenses.mit;
               platforms = lib.platforms.unix;
